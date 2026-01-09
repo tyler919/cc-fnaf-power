@@ -1,5 +1,5 @@
 {
-    "version": "1.1.1",
+    "version": "1.1.2",
     "date": "2025-01-09",
-    "changelog": "Fixed generator to use touch input instead of keyboard"
+    "changelog": "Added configurable discharge rate (1K, 4K, 10K per tick)"
 }
