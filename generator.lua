@@ -18,8 +18,18 @@ local HOPPER_SIDE = "front"        -- Redstone output to lock/unlock hopper
 -- Once you know the ID, set it here (e.g., "powah:battery_hardened")
 local BATTERY_ID = nil
 
--- Timing (based on 10K FE/tick, 10M total = 50 seconds for 100%)
-local TIME_PER_10_PERCENT = 5      -- Seconds per 10% power
+-- Timing - Choose based on your Energy Cell discharge rate:
+-- 1K/tick  = 50 seconds per 10%  (500 sec / ~8 min for 100%)
+-- 4K/tick  = 12.5 seconds per 10% (125 sec / ~2 min for 100%)
+-- 10K/tick = 5 seconds per 10%   (50 sec for 100%)
+local DISCHARGE_RATE = "10K"  -- Change to "1K", "4K", or "10K"
+
+local TIMING = {
+    ["1K"]  = 50,
+    ["4K"]  = 12.5,
+    ["10K"] = 5,
+}
+local TIME_PER_10_PERCENT = TIMING[DISCHARGE_RATE] or 5
 
 -- Debug mode - prints item IDs found in drawer
 local DEBUG_MODE = true
