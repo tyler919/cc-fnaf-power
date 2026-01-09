@@ -1,5 +1,5 @@
 {
-    "version": "1.0.0",
+    "version": "1.1.0",
     "date": "2025-01-09",
-    "changelog": "Initial release - doors, lights, generator, central controller"
+    "changelog": "Powah battery generator system with 10 power level options"
 }
