@@ -71,15 +71,20 @@ local function networkLoop()
                 generatorOnline = true
 
                 if msg.type == "refuel" and msg.amount then
-                    -- Add power from generator (cap at max)
-                    local oldPower = power
-                    power = math.min(MAX_POWER, power + msg.amount)
+                    -- Check for full restore (100% selection)
+                    if msg.fullRestore then
+                        power = MAX_POWER
+                    else
+                        -- Add power from generator (cap at max)
+                        power = math.min(MAX_POWER, power + msg.amount)
+                    end
                     lastRefuelTime = os.clock()
 
                     -- Send acknowledgment
                     rednet.send(senderId, {
                         type = "ack",
                         received = msg.amount,
+                        fullRestore = msg.fullRestore,
                         newPower = power
                     }, PROTOCOL)
                 end

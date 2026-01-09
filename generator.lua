@@ -1,29 +1,28 @@
 -- ======================
 -- FNAF GENERATOR ROOM
 -- ======================
--- Place on a computer with:
---   - Ender modem (any side)
---   - Chest adjacent to computer (for coal input)
---   - Optional: Monitor for status display
+-- Powah Battery Recharge Station
+-- Place battery in drawer, select power amount, wait
 
 -- ======================
 -- CONFIG
 -- ======================
 local PROTOCOL = "FNAF_POWER"
-local CHEST_SIDE = "top"           -- Side where chest is attached
 
-local POWER_PER_COAL = 10          -- How much FNAF power each coal gives
-local GENERATION_TIME = 3          -- Seconds per coal (vulnerability window!)
-local CHECK_INTERVAL = 0.5         -- How often to check for coal
+-- Peripheral sides
+local DRAWER_SIDE = "back"         -- Where the drawer is
+local HOPPER_SIDE = "front"        -- Redstone output to lock/unlock hopper
 
--- Fuel values (what items count as fuel)
-local FUEL_VALUES = {
-    ["minecraft:coal"] = 10,
-    ["minecraft:charcoal"] = 10,
-    ["minecraft:coal_block"] = 90,
-    ["minecraft:lava_bucket"] = 50,
-    ["minecraft:blaze_rod"] = 15,
-}
+-- Battery detection
+-- Set to nil to accept ANY item (useful for testing)
+-- Once you know the ID, set it here (e.g., "powah:battery_hardened")
+local BATTERY_ID = nil
+
+-- Timing (based on 10K FE/tick, 10M total = 50 seconds for 100%)
+local TIME_PER_10_PERCENT = 5      -- Seconds per 10% power
+
+-- Debug mode - prints item IDs found in drawer
+local DEBUG_MODE = true
 
 -- ======================
 -- SETUP
@@ -43,178 +42,194 @@ if not modemSide then
     error("No modem found! Attach an ender modem.")
 end
 
--- Find chest (using Advanced Peripherals inventory methods)
-local chest = peripheral.wrap(CHEST_SIDE)
-if not chest then
-    -- Try to find any chest
-    chest = peripheral.find("minecraft:chest") or peripheral.find("inventory")
+-- Find drawer
+local drawer = peripheral.wrap(DRAWER_SIDE)
+if not drawer then
+    print("WARNING: No drawer found on " .. DRAWER_SIDE)
+    print("Searching for any inventory...")
+    drawer = peripheral.find("inventory")
 end
 
-if not chest then
-    error("No chest found! Place a chest adjacent to computer.")
+if not drawer then
+    error("No drawer/inventory found!")
 end
 
--- Find optional monitor
+-- Find monitor
 local monitor = peripheral.find("monitor")
-if monitor then
-    monitor.setTextScale(0.5)
+if not monitor then
+    error("No monitor found!")
 end
+monitor.setTextScale(0.5)
 
 -- ======================
 -- STATE
 -- ======================
-local generating = false
-local currentFuel = nil
-local generationProgress = 0
-local totalGenerated = 0
 local centralId = nil
+local state = "waiting"  -- waiting, startup, selecting, charging, done
+
+-- Lock hopper by default (redstone ON = hopper locked)
+redstone.setOutput(HOPPER_SIDE, true)
 
 -- ======================
--- SEND POWER TO CENTRAL
+-- HELPER FUNCTIONS
 -- ======================
-local function sendPower(amount)
+
+-- Check if battery is in drawer
+local function checkForBattery()
+    local items = drawer.list()
+
+    for slot, item in pairs(items) do
+        if DEBUG_MODE then
+            print("DEBUG: Found item: " .. item.name)
+        end
+
+        -- If no specific battery ID set, accept any item
+        if BATTERY_ID == nil then
+            return true, item.name
+        end
+
+        -- Check for specific battery
+        if item.name == BATTERY_ID then
+            return true, item.name
+        end
+    end
+
+    return false, nil
+end
+
+-- Send power to central
+local function sendPower(amount, fullRestore)
     local msg = {
         id = "GENERATOR",
         deviceType = "generator",
         type = "refuel",
-        amount = amount
+        amount = amount,
+        fullRestore = fullRestore or false
     }
 
     if centralId then
         rednet.send(centralId, msg, PROTOCOL)
     else
-        -- Broadcast until we know central
         rednet.broadcast(msg, PROTOCOL)
     end
 end
 
 -- ======================
--- CHECK FOR FUEL IN CHEST
+-- MONITOR DISPLAY
 -- ======================
-local function findFuel()
-    local items = chest.list()
 
-    for slot, item in pairs(items) do
-        local fuelValue = FUEL_VALUES[item.name]
-        if fuelValue then
-            return slot, item, fuelValue
-        end
-    end
-
-    return nil
+local function clearMonitor()
+    monitor.setBackgroundColor(colors.black)
+    monitor.clear()
 end
 
--- ======================
--- EXTRACT ONE FUEL ITEM
--- ======================
-local function extractFuel(slot)
-    -- Push one item out of the chest (destroys it)
-    -- We use pushItems to a non-existent inventory to "void" it
-    -- Or we can just track that we "used" it
-
-    local item = chest.getItemDetail(slot)
-    if item then
-        -- Remove one item from the slot
-        chest.pushItems(peripheral.getName(chest), slot, 1, 1)
-        -- Actually, let's just track we used it and remove via different method
-
-        -- Simple approach: use turtle-style removal isn't available
-        -- With Advanced Peripherals, we can use inventory manipulation
-
-        -- Let's extract to adjacent inventory or void
-        -- For simplicity, we'll just remove 1 from count tracking
-        return true
-    end
-    return false
+local function centerText(y, text, color)
+    local w, h = monitor.getSize()
+    local x = math.floor((w - #text) / 2) + 1
+    monitor.setCursorPos(x, y)
+    if color then monitor.setTextColor(color) end
+    monitor.write(text)
 end
 
--- ======================
--- GENERATION LOOP
--- ======================
-local function generatorLoop()
-    while true do
-        if not generating then
-            -- Look for fuel
-            local slot, item, fuelValue = findFuel()
+-- Waiting screen
+local function drawWaiting()
+    clearMonitor()
+    local w, h = monitor.getSize()
 
-            if slot and item then
-                generating = true
-                currentFuel = item.name
-                generationProgress = 0
+    centerText(math.floor(h/2) - 1, "=== GENERATOR ===", colors.white)
+    centerText(math.floor(h/2) + 1, "Insert Battery", colors.gray)
+    centerText(math.floor(h/2) + 2, "to begin", colors.gray)
+end
 
-                -- Start generating
-                local timePerUnit = GENERATION_TIME
-                local steps = 10
-                local stepTime = timePerUnit / steps
+-- Startup animation
+local function drawStartup()
+    clearMonitor()
+    local w, h = monitor.getSize()
 
-                for i = 1, steps do
-                    generationProgress = i * 10
-                    sleep(stepTime)
-                end
+    -- Animation frames
+    local frames = {
+        "Detecting...",
+        "Battery Found!",
+        "Initializing...",
+        "Systems Online",
+        "Ready!"
+    }
 
-                -- Generation complete - remove fuel and add power
-                -- Remove the item from chest
-                chest.removeItem({name = item.name, count = 1, fromSlot = slot})
-
-                -- Send power to central
-                sendPower(fuelValue)
-                totalGenerated = totalGenerated + fuelValue
-
-                generating = false
-                currentFuel = nil
-                generationProgress = 0
-            end
-        end
-
-        sleep(CHECK_INTERVAL)
+    for i, frame in ipairs(frames) do
+        clearMonitor()
+        centerText(math.floor(h/2), frame, colors.yellow)
+        sleep(0.5)
     end
 end
 
--- Backup generator loop if removeItem doesn't work
-local function generatorLoopSimple()
-    while true do
-        if not generating then
-            local items = chest.list()
+-- Selection menu (10 options)
+local function drawSelection(selected)
+    clearMonitor()
+    local w, h = monitor.getSize()
 
-            for slot, item in pairs(items) do
-                local fuelValue = FUEL_VALUES[item.name]
+    monitor.setCursorPos(1, 1)
+    monitor.setTextColor(colors.white)
+    monitor.write("SELECT POWER LEVEL")
 
-                if fuelValue then
-                    generating = true
-                    currentFuel = item.name:gsub("minecraft:", "")
-                    generationProgress = 0
+    monitor.setCursorPos(1, 2)
+    monitor.setTextColor(colors.gray)
+    monitor.write("Use UP/DOWN, ENTER")
 
-                    -- Generation animation
-                    for i = 1, 10 do
-                        generationProgress = i * 10
-                        sleep(GENERATION_TIME / 10)
-                    end
+    local options = {10, 20, 30, 40, 50, 60, 70, 80, 90, 100}
+    local startY = 4
 
-                    -- Try to extract the item
-                    -- Method 1: Push to a trash inventory
-                    -- Method 2: If there's a hopper below, let it extract
-                    -- Method 3: Just decrement and trust the system
+    for i, pct in ipairs(options) do
+        monitor.setCursorPos(2, startY + i - 1)
 
-                    -- For now, we'll use a trick: push 1 item to slot 99 (doesn't exist, item is lost)
-                    pcall(function()
-                        chest.pushItems(peripheral.getName(chest), slot, 1, 99)
-                    end)
-
-                    -- Send power to central
-                    sendPower(fuelValue)
-                    totalGenerated = totalGenerated + fuelValue
-
-                    generating = false
-                    currentFuel = nil
-                    generationProgress = 0
-
-                    break  -- Only process one item per cycle
-                end
-            end
+        if i == selected then
+            monitor.setBackgroundColor(colors.blue)
+            monitor.setTextColor(colors.white)
+        else
+            monitor.setBackgroundColor(colors.black)
+            monitor.setTextColor(colors.lightGray)
         end
 
-        sleep(CHECK_INTERVAL)
+        local timeNeeded = (pct / 10) * TIME_PER_10_PERCENT
+        local label = string.format(" %3d%% (%ds) ", pct, timeNeeded)
+        monitor.write(label)
     end
+
+    monitor.setBackgroundColor(colors.black)
+end
+
+-- Charging progress
+local function drawCharging(percent, timeLeft)
+    clearMonitor()
+    local w, h = monitor.getSize()
+
+    centerText(2, "CHARGING...", colors.yellow)
+
+    -- Progress bar
+    local barWidth = w - 4
+    local filled = math.floor((percent / 100) * barWidth)
+
+    monitor.setCursorPos(2, math.floor(h/2))
+    monitor.setTextColor(colors.white)
+    monitor.write("[")
+    monitor.setTextColor(colors.lime)
+    monitor.write(string.rep("#", filled))
+    monitor.setTextColor(colors.gray)
+    monitor.write(string.rep("-", barWidth - filled))
+    monitor.setTextColor(colors.white)
+    monitor.write("]")
+
+    centerText(math.floor(h/2) + 2, percent .. "%", colors.lime)
+    centerText(math.floor(h/2) + 4, timeLeft .. "s remaining", colors.gray)
+end
+
+-- Done screen
+local function drawDone(amount)
+    clearMonitor()
+    local w, h = monitor.getSize()
+
+    centerText(math.floor(h/2) - 1, "COMPLETE!", colors.lime)
+    centerText(math.floor(h/2) + 1, "+" .. amount .. " Power", colors.yellow)
+    centerText(math.floor(h/2) + 3, "Remove battery", colors.gray)
 end
 
 -- ======================
@@ -225,15 +240,15 @@ local function networkLoop()
         local senderId, msg, protocol = rednet.receive(PROTOCOL)
 
         if type(msg) == "table" then
-            -- Handle system commands (broadcast to all)
+            -- Handle system commands
             if msg.type == "system" and msg.command == "UPDATE" then
                 print("Update command received!")
                 sleep(1)
                 shell.run("update", "silent")
-                return  -- Exit loop (update will reboot)
+                return
             end
 
-            -- Remember central's ID from any response
+            -- Remember central's ID
             if msg.type == "ack" or msg.command then
                 centralId = senderId
             end
@@ -242,117 +257,94 @@ local function networkLoop()
 end
 
 -- ======================
--- DISPLAY
+-- MAIN LOGIC
 -- ======================
-local function displayLoop()
+local function mainLoop()
+    local selected = 1
+
     while true do
-        -- Terminal display
-        term.clear()
-        term.setCursorPos(1, 1)
+        if state == "waiting" then
+            drawWaiting()
 
-        print("=== GENERATOR ROOM ===")
-        print("")
-        print("Chest: " .. CHEST_SIDE)
-        print("Modem: " .. modemSide)
-        print("")
-
-        if centralId then
-            print("Central: Connected")
-        else
-            print("Central: Searching...")
-        end
-
-        print("")
-        print("Total generated: " .. totalGenerated)
-        print("")
-
-        if generating then
-            print("GENERATING...")
-            print("Fuel: " .. (currentFuel or "?"))
-
-            -- Progress bar
-            local barWidth = 20
-            local filled = math.floor((generationProgress / 100) * barWidth)
-            print("[" .. string.rep("#", filled) .. string.rep("-", barWidth - filled) .. "]")
-            print(generationProgress .. "%")
-        else
-            -- Check what's in chest
-            local items = chest.list()
-            local fuelCount = 0
-
-            for slot, item in pairs(items) do
-                if FUEL_VALUES[item.name] then
-                    fuelCount = fuelCount + item.count
-                end
+            -- Check for battery
+            local found, itemName = checkForBattery()
+            if found then
+                print("Battery detected: " .. (itemName or "unknown"))
+                state = "startup"
             end
 
-            if fuelCount > 0 then
-                print("Fuel ready: " .. fuelCount)
-            else
-                print("Waiting for fuel...")
-                print("")
-                print("Insert coal into chest")
+            sleep(0.5)
+
+        elseif state == "startup" then
+            drawStartup()
+            state = "selecting"
+            selected = 1
+
+        elseif state == "selecting" then
+            drawSelection(selected)
+
+            -- Wait for input
+            local event, key = os.pullEvent("key")
+
+            if key == keys.up and selected > 1 then
+                selected = selected - 1
+            elseif key == keys.down and selected < 10 then
+                selected = selected + 1
+            elseif key == keys.enter then
+                state = "charging"
+            end
+
+        elseif state == "charging" then
+            local targetPercent = selected * 10
+            local totalTime = (targetPercent / 10) * TIME_PER_10_PERCENT
+
+            -- Unlock hopper to let battery drop
+            redstone.setOutput(HOPPER_SIDE, false)
+
+            -- Charging animation
+            for t = 1, totalTime do
+                local progress = math.floor((t / totalTime) * 100)
+                local timeLeft = totalTime - t
+                drawCharging(progress, timeLeft)
+                sleep(1)
+            end
+
+            -- Lock hopper again
+            redstone.setOutput(HOPPER_SIDE, true)
+
+            -- Send power to central
+            local isFullRestore = (targetPercent == 100)
+            sendPower(targetPercent, isFullRestore)
+
+            state = "done"
+
+        elseif state == "done" then
+            drawDone(selected * 10)
+
+            -- Wait for battery to be removed
+            sleep(1)
+            local found, _ = checkForBattery()
+            if not found then
+                state = "waiting"
             end
         end
-
-        -- Monitor display (if available)
-        if monitor then
-            local mw, mh = monitor.getSize()
-            monitor.setBackgroundColor(colors.black)
-            monitor.clear()
-
-            monitor.setTextColor(colors.white)
-            monitor.setCursorPos(1, 1)
-            monitor.write("=== GENERATOR ===")
-
-            if generating then
-                monitor.setCursorPos(1, 3)
-                monitor.setTextColor(colors.yellow)
-                monitor.write("GENERATING...")
-
-                monitor.setCursorPos(1, 5)
-                monitor.setTextColor(colors.orange)
-                local barWidth = mw - 2
-                local filled = math.floor((generationProgress / 100) * barWidth)
-                monitor.write("[" .. string.rep("#", filled) .. string.rep("-", barWidth - filled) .. "]")
-
-                monitor.setCursorPos(1, 7)
-                monitor.write(generationProgress .. "%")
-            else
-                monitor.setCursorPos(1, 3)
-                monitor.setTextColor(colors.gray)
-                monitor.write("Insert fuel...")
-
-                monitor.setCursorPos(1, 5)
-                monitor.setTextColor(colors.lime)
-                monitor.write("Generated: " .. totalGenerated)
-            end
-        end
-
-        sleep(0.3)
     end
 end
 
 -- ======================
--- ANNOUNCE TO CENTRAL
+-- RUN
 -- ======================
-local function announce()
-    rednet.broadcast({
-        id = "GENERATOR",
-        deviceType = "generator",
-        type = "hello"
-    }, PROTOCOL)
-end
+print("=== FNAF GENERATOR ===")
+print("Drawer: " .. DRAWER_SIDE)
+print("Hopper: " .. HOPPER_SIDE)
+print("Debug: " .. tostring(DEBUG_MODE))
+print("")
+print("Waiting for battery...")
 
--- ======================
--- RUN EVERYTHING
--- ======================
-print("Starting Generator Room...")
-print("Chest: " .. CHEST_SIDE)
-announce()
+-- Lock hopper initially
+redstone.setOutput(HOPPER_SIDE, true)
 
-parallel.waitForAll(
-    generatorLoopSimple,
-    networkLoop,
-    displayLoop
+parallel.waitForAny(
+    mainLoop,
+    networkLoop
 )
