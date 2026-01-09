@@ -162,8 +162,10 @@ local function drawStartup()
     end
 end
 
--- Selection menu (10 options)
-local function drawSelection(selected)
+-- Selection menu (10 options) - TOUCH BASED
+local MENU_START_Y = 4  -- Where menu options start
+
+local function drawSelection()
     clearMonitor()
     local w, h = monitor.getSize()
 
@@ -173,28 +175,37 @@ local function drawSelection(selected)
 
     monitor.setCursorPos(1, 2)
     monitor.setTextColor(colors.gray)
-    monitor.write("Use UP/DOWN, ENTER")
+    monitor.write("Tap to select")
 
     local options = {10, 20, 30, 40, 50, 60, 70, 80, 90, 100}
-    local startY = 4
 
     for i, pct in ipairs(options) do
-        monitor.setCursorPos(2, startY + i - 1)
-
-        if i == selected then
-            monitor.setBackgroundColor(colors.blue)
-            monitor.setTextColor(colors.white)
-        else
-            monitor.setBackgroundColor(colors.black)
-            monitor.setTextColor(colors.lightGray)
-        end
+        monitor.setCursorPos(1, MENU_START_Y + i - 1)
+        monitor.setBackgroundColor(colors.gray)
+        monitor.setTextColor(colors.white)
 
         local timeNeeded = (pct / 10) * TIME_PER_10_PERCENT
-        local label = string.format(" %3d%% (%ds) ", pct, timeNeeded)
+        local label = string.format(" %3d%% - %ds ", pct, timeNeeded)
+
+        -- Pad to fill width for easier tapping
+        local padding = w - #label
+        if padding > 0 then
+            label = label .. string.rep(" ", padding)
+        end
+
         monitor.write(label)
     end
 
     monitor.setBackgroundColor(colors.black)
+end
+
+-- Get which option was tapped (returns 1-10, or nil if invalid)
+local function getOptionFromTouch(y)
+    local option = y - MENU_START_Y + 1
+    if option >= 1 and option <= 10 then
+        return option
+    end
+    return nil
 end
 
 -- Charging progress
@@ -281,16 +292,14 @@ local function mainLoop()
             selected = 1
 
         elseif state == "selecting" then
-            drawSelection(selected)
+            drawSelection()
 
-            -- Wait for input
-            local event, key = os.pullEvent("key")
+            -- Wait for touch input on monitor
+            local event, side, x, y = os.pullEvent("monitor_touch")
 
-            if key == keys.up and selected > 1 then
-                selected = selected - 1
-            elseif key == keys.down and selected < 10 then
-                selected = selected + 1
-            elseif key == keys.enter then
+            local option = getOptionFromTouch(y)
+            if option then
+                selected = option
                 state = "charging"
             end
 
