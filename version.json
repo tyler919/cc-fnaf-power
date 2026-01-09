@@ -1,5 +1,5 @@
 {
-    "version": "1.1.0",
+    "version": "1.1.1",
     "date": "2025-01-09",
-    "changelog": "Powah battery generator system with 10 power level options"
+    "changelog": "Fixed generator to use touch input instead of keyboard"
 }
