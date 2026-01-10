@@ -101,6 +101,11 @@ redstone.setOutput(HOPPER_SIDE, true)
 local function checkForBattery()
     local items = drawer.list()
 
+    -- Handle nil (empty or invalid inventory)
+    if not items then
+        return false, nil
+    end
+
     for slot, item in pairs(items) do
         if DEBUG_MODE then
             print("DEBUG: Found item: " .. item.name)
