@@ -1,5 +1,5 @@
 {
-    "version": "1.2.0",
+    "version": "1.2.1",
     "date": "2025-01-09",
-    "changelog": "Added breaker warning system - tap to reset or generator breaks"
+    "changelog": "Fixed nil error when drawer is empty"
 }
