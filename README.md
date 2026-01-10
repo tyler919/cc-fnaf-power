@@ -43,12 +43,26 @@ The installer will download all files and start the setup wizard.
 - Output to lamp (redstone)
 
 ### Generator Room
-- Computer
+- Computer with Monitor (for touch interface)
 - Ender Modem (any side)
-- Monitor (for touch interface)
-- Oak Drawer (back side) - for battery input
-- Hopper (front side redstone) - computer locks/unlocks it
-- Powah Energy Cell (below hopper)
+- Oak Drawer (back of computer) - battery input
+
+**Battery Flow Diagram:**
+```
+                    [Computer]
+                        |
+                   [Oak Drawer] ← Player inserts battery
+                        |
+                    [Hopper] ← Locked by computer (front redstone)
+                        |
+               [Energy Discharger] ← Drains battery energy
+                        |
+                    [Hopper]
+                        |
+                   [Output] → Player retrieves empty battery
+```
+
+The computer locks the first hopper via redstone. When player selects power level, it unlocks and the battery flows through the system, gets drained, and comes back out for the player to recharge elsewhere.
 
 ## Generator System
 
