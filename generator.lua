@@ -411,11 +411,22 @@ local function networkLoop()
 
         if type(msg) == "table" then
             -- Handle system commands
-            if msg.type == "system" and msg.command == "UPDATE" then
-                print("Update command received!")
-                sleep(1)
-                shell.run("update", "silent")
-                return
+            if msg.type == "system" then
+                if msg.command == "UPDATE" then
+                    print("Update command received!")
+                    sleep(1)
+                    shell.run("update", "silent")
+                    return
+                elseif msg.command == "RESET_GENERATOR" then
+                    -- Admin reset - fix broken generator
+                    print("ADMIN RESET received!")
+                    generatorBroken = false
+                    breakerWarning = false
+                    breakerTimer = 0
+                    timeSinceLastWarning = 0
+                    state = "waiting"
+                    print("Generator restored to working state.")
+                end
             end
 
             -- Remember central's ID

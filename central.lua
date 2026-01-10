@@ -376,10 +376,17 @@ local function inputLoop()
     while true do
         local event, key = os.pullEvent("key")
 
-        if key == keys.r and gameOver then
-            -- Reset game
+        if key == keys.r then
+            -- Reset game and generator
             power = MAX_POWER
             gameOver = false
+
+            -- Send reset command to generator
+            rednet.broadcast({
+                type = "system",
+                command = "RESET_GENERATOR"
+            }, PROTOCOL)
+            print("Reset command sent to generator")
         elseif key == keys.u then
             -- Broadcast update to all devices
             broadcastUpdate()
