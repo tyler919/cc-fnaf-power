@@ -1,5 +1,5 @@
 {
-    "version": "1.1.2",
+    "version": "1.2.0",
     "date": "2025-01-09",
-    "changelog": "Added configurable discharge rate (1K, 4K, 10K per tick)"
+    "changelog": "Added breaker warning system - tap to reset or generator breaks"
 }
